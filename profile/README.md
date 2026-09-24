@@ -1,10 +1,10 @@
 # Sagacity
 
-**The reliability layer for Spring AI agents.**
+**Human oversight and audit for Spring AI agents.**
 
-AI agents do real work — charge cards, reserve inventory, send emails, update CRMs. When step 4 of 5 fails, nothing undoes steps 1–3 automatically, nobody approved the irreversible action in step 3, and there is no tamper-evident record of what happened.
+Your AI agents are making decisions that affect real people — approving transactions, sending emails, charging cards, updating records. Right now, nobody approved the irreversible action before it ran. Nothing undoes completed steps when something later fails. There is no compliance-grade record for your regulator.
 
-Sagacity fixes all three — as a Spring Boot library, with no new infrastructure.
+Sagacity is the governance layer that sits between your Spring AI agent and the actions it takes.
 
 ```java
 @Workflow("refund-approval")
@@ -12,59 +12,41 @@ Sagacity fixes all three — as a Spring Boot library, with no new infrastructur
 public class RefundWorkflow {
 
     @Stage(order = 1)
-    @Compensable(by = "cancelValidation")       // undo if anything fails later
-    public String validateRefund(String orderId) {
-        return validation.check(orderId);        // returns "val-8821"
-    }
+    @Compensable(by = "cancelValidation")       // undone automatically if anything fails
+    public String validateRefund(String orderId) { ... }
 
     @Stage(order = 2)
     @Compensable(by = "reverseRefund")
-    public String issueRefund(String validationId) {
-        // 'validationId' injected automatically from stage 1's return value
-        return payments.refund(validationId);
-    }
+    public String issueRefund(String validationId) { ... }
 
     @Stage(order = 3)
     @Gate(approvalRequired = true,               // workflow pauses here
           reason = "Compliance must approve before customer is notified")
-    public String notifyCompliance(String refundId) {
-        return compliance.log(refundId);
-    }
+    public String notifyCompliance(String refundId) { ... }
 
     @Stage(order = 4)
-    public void sendConfirmation(String ref) {
-        email.send(ref, "Your refund is confirmed");
-    }
-
-    @Compensation
-    public void cancelValidation(CompensationContext ctx) { validation.cancel(ctx.result()); }
-
-    @Compensation
-    public void reverseRefund(CompensationContext ctx) { payments.reverse(ctx.result()); }
+    public void sendConfirmation(String ref) { ... }
 }
 ```
 
 ```java
-// Run async — pauses at stage 3 until a human approves
+// Workflow pauses at stage 3. Approve from the embedded UI or via REST.
+// If rejected — stages 2 and 1 compensate in reverse. Full audit trail either way.
 WorkflowHandle handle = workflowRuntime.runAsync(refundWorkflow, "ORDER-88210");
-workflowRuntime.approveGate(handle.runId(), "notifyCompliance");
-handle.awaitCompletion(30, TimeUnit.MINUTES);
-// Every stage journaled. If anything fails, stages 2 and 1 compensate in reverse.
 ```
 
 ## What it provides
 
 | Feature | |
 |---|---|
-| Declarative workflows | `@Workflow`, `@Stage`, `@Gate`, `@Check` annotations |
-| Automatic compensation | On failure, completed stages undo in reverse order |
-| Human approval gates | Workflow pauses before irreversible actions |
-| Pre-flight checks | Block a stage before it executes (`StageCheck` SPI) |
-| Tamper-evident audit trail | SHA-256 hash-chained journal, verifiable via REST |
-| EU AI Act Article 12 | Append-only, traceable, exportable |
-| Embedded UI | `/sagacity/ui` — workflow runs, gate approvals, audit viewer |
-| Universal JDBC | PostgreSQL, MySQL, MariaDB, Oracle, H2, SQLite |
-| Zero new infrastructure | Library only — add a Maven dependency |
+| **Human approval gates** | Workflow pauses before irreversible actions. Approve or reject from the embedded UI or REST API. |
+| **Automatic compensation** | On failure or rejection, completed stages undo in reverse order. |
+| **Tamper-evident audit trail** | SHA-256 hash-chained journal. Every decision recorded. Verifiable. |
+| **EU AI Act Article 12** | Append-only, traceable, exportable. |
+| **Durable gates** | Gate approvals survive JVM restarts — state persisted to your existing database. |
+| **Embedded UI** | `/sagacity/ui` — workflow runs, gate approvals, audit viewer. Zero config. |
+| **Universal JDBC** | PostgreSQL, MySQL, MariaDB, Oracle, H2, SQLite. |
+| **Zero new infrastructure** | Add a Maven dependency. Nothing else. |
 
 ## Quick Start
 
@@ -72,14 +54,14 @@ handle.awaitCompletion(30, TimeUnit.MINUTES);
 <dependency>
     <groupId>io.github.sumitvairagar</groupId>
     <artifactId>sagacity-spring-boot-starter</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 
-<!-- Optional: declarative workflow engine -->
+<!-- Workflow engine with @Stage, @Gate, @Check -->
 <dependency>
     <groupId>io.github.sumitvairagar</groupId>
     <artifactId>sagacity-workflows</artifactId>
-    <version>0.3.0</version>
+    <version>0.4.0</version>
 </dependency>
 ```
 
@@ -89,13 +71,7 @@ handle.awaitCompletion(30, TimeUnit.MINUTES);
 |------|-------------|
 | [sagacity](https://github.com/sagacity-ai/sagacity) | Core library — Spring Boot Starter, workflow engine, compensation, audit journal |
 | [sagacity-quickstart](https://github.com/sagacity-ai/sagacity-quickstart) | 5-minute runnable demo — 3 scenarios, no API key required |
-| [sagacity-dashboard](https://github.com/sagacity-ai/sagacity-dashboard) | Cloud dashboard — hosted audit trail, team approval workflows |
-
-## How it relates to Temporal
-
-Temporal solves **durable execution** — surviving process crashes. Sagacity solves **compensation and evidence** — undoing side effects when business logic says "this should not have happened," gating irreversible actions behind human approval, and producing a tamper-evident record for compliance.
-
-A refund is not a retry. They are complementary.
+| [sagacity-dashboard](https://github.com/sagacity-ai/sagacity-dashboard) | Cloud dashboard — hosted audit trail, team approval workflows (Sagacity Cloud) |
 
 ---
 
